@@ -26,6 +26,10 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+const (
+	TracingRequestId = "Request-Id"
+)
+
 type SeldonRestApi struct {
 	Router         *mux.Router
 	Client         client.SeldonApiClient
@@ -262,6 +266,7 @@ func (r *SeldonRestApi) feedback(w http.ResponseWriter, req *http.Request) {
 	if opentracing.IsGlobalTracerRegistered() {
 		var serverSpan opentracing.Span
 		ctx, serverSpan = setupTracing(ctx, req, TracingStatusName)
+		serverSpan.SetTag(TracingRequestId, req.Header.Get(payload.SeldonPUIDHeader))
 		defer serverSpan.Finish()
 	}
 
@@ -297,6 +302,7 @@ func (r *SeldonRestApi) predictions(w http.ResponseWriter, req *http.Request) {
 	if opentracing.IsGlobalTracerRegistered() {
 		var serverSpan opentracing.Span
 		ctx, serverSpan = setupTracing(ctx, req, TracingPredictionsName)
+		serverSpan.SetTag(TracingRequestId, req.Header.Get(payload.SeldonPUIDHeader))
 		defer serverSpan.Finish()
 	}
 
