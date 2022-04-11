@@ -89,7 +89,7 @@ func (r *SeldonRestApi) respondWithSuccess(w http.ResponseWriter, code int, payl
 	}
 }
 
-func (r *SeldonRestApi) respondWithError(w http.ResponseWriter, payload payload.SeldonPayload, err error) {
+func (r *SeldonRestApi) respondWithError(w http.ResponseWriter, payload payload.SeldonPayload, err error, serverSpan opentracing.Span) {
 
 	if serr, ok := err.(*httpStatusError); ok {
 		w.WriteHeader(serr.StatusCode)
@@ -110,6 +110,11 @@ func (r *SeldonRestApi) respondWithError(w http.ResponseWriter, payload payload.
 		if err != nil {
 			r.Log.Error(err, "Failed to write error payload")
 		}
+	}
+
+	if serverSpan != nil {
+		serverSpan.SetTag("error", true)
+		serverSpan.SetTag("errorInfo", err.Error())
 	}
 }
 
@@ -206,6 +211,7 @@ func setupTracing(ctx context.Context, req *http.Request, spanName string) (cont
 	tracer := opentracing.GlobalTracer()
 	spanCtx, _ := tracer.Extract(opentracing.HTTPHeaders, opentracing.HTTPHeadersCarrier(req.Header))
 	serverSpan := tracer.StartSpan(spanName, ext.RPCServerOption(spanCtx))
+	serverSpan.SetTag(payload.SeldonPUIDHeader, req.Header.Get(payload.SeldonPUIDHeader))
 	ctx = opentracing.ContextWithSpan(ctx, serverSpan)
 	return ctx, serverSpan
 }
@@ -214,8 +220,8 @@ func (r *SeldonRestApi) metadata(w http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 
 	// Apply tracing if active
+	var serverSpan opentracing.Span
 	if opentracing.IsGlobalTracerRegistered() {
-		var serverSpan opentracing.Span
 		ctx, serverSpan = setupTracing(ctx, req, TracingMetadataName)
 		defer serverSpan.Finish()
 	}
@@ -226,7 +232,7 @@ func (r *SeldonRestApi) metadata(w http.ResponseWriter, req *http.Request) {
 	seldonPredictorProcess := predictor.NewPredictorProcess(ctx, r.Client, logf.Log.WithName(LoggingRestClientName), r.ServerUrl, r.Namespace, req.Header, modelName)
 	resPayload, err := seldonPredictorProcess.Metadata(&r.predictor.Graph, modelName, nil)
 	if err != nil {
-		r.respondWithError(w, resPayload, err)
+		r.respondWithError(w, resPayload, err, serverSpan)
 		return
 	}
 	r.respondWithSuccess(w, http.StatusOK, resPayload)
@@ -236,8 +242,8 @@ func (r *SeldonRestApi) status(w http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 
 	// Apply tracing if active
+	var serverSpan opentracing.Span
 	if opentracing.IsGlobalTracerRegistered() {
-		var serverSpan opentracing.Span
 		ctx, serverSpan = setupTracing(ctx, req, TracingStatusName)
 		defer serverSpan.Finish()
 	}
@@ -248,7 +254,7 @@ func (r *SeldonRestApi) status(w http.ResponseWriter, req *http.Request) {
 	seldonPredictorProcess := predictor.NewPredictorProcess(ctx, r.Client, logf.Log.WithName(LoggingRestClientName), r.ServerUrl, r.Namespace, req.Header, modelName)
 	resPayload, err := seldonPredictorProcess.Status(&r.predictor.Graph, modelName, nil)
 	if err != nil {
-		r.respondWithError(w, resPayload, err)
+		r.respondWithError(w, resPayload, err, serverSpan)
 		return
 	}
 	r.respondWithSuccess(w, http.StatusOK, resPayload)
@@ -259,28 +265,28 @@ func (r *SeldonRestApi) feedback(w http.ResponseWriter, req *http.Request) {
 	ctx = context.WithValue(ctx, payload.SeldonPUIDHeader, req.Header.Get(payload.SeldonPUIDHeader))
 
 	// Apply tracing if active
+	var serverSpan opentracing.Span
 	if opentracing.IsGlobalTracerRegistered() {
-		var serverSpan opentracing.Span
 		ctx, serverSpan = setupTracing(ctx, req, TracingStatusName)
 		defer serverSpan.Finish()
 	}
 
 	bodyBytes, err := ioutil.ReadAll(req.Body)
 	if err != nil {
-		r.respondWithError(w, nil, err)
+		r.respondWithError(w, nil, err, serverSpan)
 		return
 	}
 
 	seldonPredictorProcess := predictor.NewPredictorProcess(ctx, r.Client, logf.Log.WithName(LoggingRestClientName), r.ServerUrl, r.Namespace, req.Header, "")
 	reqPayload, err := seldonPredictorProcess.Client.Unmarshall(bodyBytes, req.Header.Get(http2.ContentType))
 	if err != nil {
-		r.respondWithError(w, nil, err)
+		r.respondWithError(w, nil, err, serverSpan)
 		return
 	}
 
 	resPayload, err := seldonPredictorProcess.Feedback(&r.predictor.Graph, reqPayload)
 	if err != nil {
-		r.respondWithError(w, resPayload, err)
+		r.respondWithError(w, resPayload, err, serverSpan)
 		return
 	}
 	r.respondWithSuccess(w, http.StatusOK, resPayload)
@@ -294,15 +300,15 @@ func (r *SeldonRestApi) predictions(w http.ResponseWriter, req *http.Request) {
 	ctx = context.WithValue(ctx, payload.SeldonPUIDHeader, req.Header.Get(payload.SeldonPUIDHeader))
 
 	// Apply tracing if active
+	var serverSpan opentracing.Span
 	if opentracing.IsGlobalTracerRegistered() {
-		var serverSpan opentracing.Span
 		ctx, serverSpan = setupTracing(ctx, req, TracingPredictionsName)
 		defer serverSpan.Finish()
 	}
 
 	bodyBytes, err := ioutil.ReadAll(req.Body)
 	if err != nil {
-		r.respondWithError(w, nil, err)
+		r.respondWithError(w, nil, err, serverSpan)
 		return
 	}
 
@@ -313,13 +319,13 @@ func (r *SeldonRestApi) predictions(w http.ResponseWriter, req *http.Request) {
 
 	reqPayload, err := seldonPredictorProcess.Client.Unmarshall(bodyBytes, req.Header.Get(http2.ContentType))
 	if err != nil {
-		r.respondWithError(w, nil, err)
+		r.respondWithError(w, nil, err, serverSpan)
 		return
 	}
 
 	resPayload, err := seldonPredictorProcess.Predict(&r.predictor.Graph, reqPayload)
 	if err != nil {
-		r.respondWithError(w, resPayload, err)
+		r.respondWithError(w, resPayload, err, serverSpan)
 		return
 	}
 	r.respondWithSuccess(w, http.StatusOK, resPayload)
@@ -331,8 +337,8 @@ func (r *SeldonRestApi) graphMetadata(w http.ResponseWriter, req *http.Request) 
 	ctx := req.Context()
 
 	// Apply tracing if active
+	var serverSpan opentracing.Span = nil
 	if opentracing.IsGlobalTracerRegistered() {
-		var serverSpan opentracing.Span
 		ctx, serverSpan = setupTracing(ctx, req, TracingMetadataName)
 		defer serverSpan.Finish()
 	}
@@ -342,7 +348,7 @@ func (r *SeldonRestApi) graphMetadata(w http.ResponseWriter, req *http.Request) 
 	graphMetadata, err := seldonPredictorProcess.GraphMetadata(r.predictor)
 
 	if err != nil {
-		r.respondWithError(w, nil, err)
+		r.respondWithError(w, nil, err, serverSpan)
 		return
 	}
 
