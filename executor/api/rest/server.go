@@ -114,7 +114,6 @@ func (r *SeldonRestApi) respondWithError(w http.ResponseWriter, payload payload.
 
 	if serverSpan != nil {
 		serverSpan.SetTag("error", true)
-		serverSpan.SetTag("errorInfo", err.Error())
 	}
 }
 
