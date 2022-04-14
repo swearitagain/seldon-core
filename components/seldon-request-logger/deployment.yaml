@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seldon-request-logger
+  namespace: seldon-logs
+  labels:
+    app: seldon-request-logger
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: seldon-request-logger
+  template:
+    metadata:
+      labels:
+        app: seldon-request-logger
+    spec:    
+      containers:
+        - name: user-container
+          image: mirrors.tencent.com/junsonghu/seldon-request-logger:1.14.0-dev-e7-d1.05
+          env:
+            - name: ELASTICSEARCH_HOST
+              value: "jkai2.sh3.es.svr.ehk.db."
+            - name: ELASTICSEARCH_PORT
+              value: "31162"
+            - name: ELASTICSEARCH_PROTOCOL
+              value: "http"
+            - name: ELASTICSEARCH_USER
+              value: "jkai"
+            - name: ELASTICSEARCH_PASS
+              value: "jkai2022"
+            #if SELDON_ENVIRONMENT is defined index_prefix will be inferenece-log-${SELDON_ENVIRONMENT}-... instead of inference-log-...
+            # - name: SELDON_ENVIRONMENT
+            #   value: "dev"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seldon-request-logger
+  namespace: seldon-logs
+spec:
+  selector:
+    app: seldon-request-logger
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080 
